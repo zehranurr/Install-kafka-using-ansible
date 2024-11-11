@@ -1,0 +1,74 @@
+---
+- name: Setup Kafka and Zookeeper
+  hosts: ubuntu_containers
+  become: yes
+  tasks:
+    - name: Install Java
+      apt:
+        name: openjdk-11-jdk
+        state: present
+
+    - name: Download Kafka
+      get_url:
+        url: https://archive.apache.org/dist/kafka/3.2.1/kafka_2.13-3.2.1.tgz
+        dest: /tmp/kafka.tgz
+
+    - name: Extract Kafka
+      unarchive:
+        src: /tmp/kafka.tgz
+        dest: /opt/
+        remote_src: yes
+
+    - name: Create symlink for Kafka
+      file:
+        src: /opt/kafka_2.13-3.2.1
+        dest: /opt/kafka
+        state: link
+
+    - name: Create kafka user and group
+      ansible.builtin.user:
+        name: kafka
+        comment: Kafka User
+        create_home: no
+        shell: /bin/false
+
+    - name: Configure Zookeeper
+      copy:
+        dest: /opt/kafka/config/zookeeper.properties
+        content: |
+          dataDir=/var/lib/zookeeper
+          clientPort=2181
+          maxClientCnxns=0
+          admin.enableServer=false
+
+    - name: Configure Kafka
+      copy:
+        dest: /opt/kafka/config/server.properties
+        content: |
+          broker.id=0
+          listeners=PLAINTEXT://:9092
+          log.dirs=/var/lib/kafka
+          zookeeper.connect=localhost:2181
+          num.partitions=1
+          offsets.topic.replication.factor=1
+          transaction.state.log.replication.factor=1
+          transaction.state.log.min.isr=1
+          log.retention.hours=168
+          log.segment.bytes=1073741824
+          log.retention.check.interval.ms=300000
+
+    - name: Create Kafka data directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: kafka
+        group: kafka
+      with_items:
+        - /var/lib/zookeeper
+        - /var/lib/kafka
+
+    - name: Start Zookeeper
+      command: /opt/kafka/bin/zookeeper-server-start.sh -daemon /opt/kafka/config/zookeeper.properties
+
+    - name: Start Kafka
+      command: /opt/kafka/bin/kafka-server-start.sh -daemon /opt/kafka/config/server.properties
